@@ -40,7 +40,10 @@ func (c *conversation) JuiceEfficiency() float64 {
 
 // parseConversation 从原始请求体与响应体还原对话。
 // 响应体可能是普通 JSON，也可能是 SSE 流（text/event-stream）。
-func parseConversation(reqRaw, respRaw []byte, meta *sdk.RequestMeta, at time.Time) (*conversation, error) {
+//
+// contentType 是响应的 Content-Type header，用于判定流式 vs 非流式。
+// 优先用它而非 body 嗅探：嗅探在罕见情况下会误判（见 isEventStream 注释）。
+func parseConversation(reqRaw, respRaw []byte, contentType string, meta *sdk.RequestMeta, at time.Time) (*conversation, error) {
 	conv := &conversation{At: at}
 	if meta != nil {
 		conv.RequestID = meta.RequestID
@@ -70,7 +73,7 @@ func parseConversation(reqRaw, respRaw []byte, meta *sdk.RequestMeta, at time.Ti
 	if len(respRaw) == 0 {
 		return nil, errNoConversation
 	}
-	if isEventStream(respRaw) {
+	if isEventStream(contentType, respRaw) {
 		parseSSE(respRaw, conv)
 	} else {
 		parseJSONResponse(respRaw, conv)
@@ -109,9 +112,26 @@ func extractContent(raw json.RawMessage) string {
 	return ""
 }
 
-func isEventStream(raw []byte) bool {
+// isEventStream 判定响应是否为 SSE 流。
+//
+// 优先用 Content-Type header（text/event-stream），body 嗅探仅作兜底：
+// 嗅探 `\ndata:` 在极罕见情况下会误判 —— 非流式 JSON 响应的正文里若含
+// 真实换行（非转义的 \n）后紧跟 `data:`，就会被误判为 SSE。
+//
+// 这要求响应体本身就是非法 JSON（合法 JSON 里换行会被转义成 `\` + `n` 两字符），
+// 或上游未按标准转义，实际触发概率极低，但用 header 可彻底避免。
+func isEventStream(contentType string, raw []byte) bool {
+	// 优先判据：Content-Type 包含 text/event-stream。
+	if strings.Contains(strings.ToLower(contentType), "text/event-stream") {
+		return true
+	}
+	// 兜底：header 缺失或不可信时，才走 body 嗅探。
+	// 只接受以 `data:` 或 `event:` 开头，或含 `\ndata:` / `\nevent:` 的响应。
 	trimmed := bytes.TrimSpace(raw)
-	return bytes.HasPrefix(trimmed, []byte("data:")) || bytes.Contains(trimmed, []byte("\ndata:"))
+	if bytes.HasPrefix(trimmed, []byte("data:")) || bytes.HasPrefix(trimmed, []byte("event:")) {
+		return true
+	}
+	return bytes.Contains(trimmed, []byte("\ndata:")) || bytes.Contains(trimmed, []byte("\nevent:"))
 }
 
 // parseJSONResponse 解析非流式 chat.completions 响应。
