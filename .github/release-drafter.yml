@@ -42,7 +42,7 @@ version-resolver:
       - 'bugfix'
   default: patch
 template: |
-  ## Sub2API IQ Evaluator $RESOLVED_VERSION
+  ## Sub2API IQ Evaluator
 
   在转发 OpenAI OAuth 出站请求的同时异步评测对话质量。
 
@@ -74,7 +74,7 @@ template: |
   ## 系统要求
 
   - Sub2API >= 0.2.8
-  - Go >= 1.25
+  - Go >= 1.26.9
 
   ## 贡献者
 
