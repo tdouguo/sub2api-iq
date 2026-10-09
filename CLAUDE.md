@@ -14,7 +14,7 @@
 | 上游宿主 | [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) |
 | 插件框架 | [feeeei/sub2api-plugin-framework](https://github.com/feeeei/sub2api-plugin-framework) |
 | 首个 tag | **`0.0.1`**（已统一 manifest 与 CHANGELOG） |
-| Go 工具链 | **1.25.0**（`go.mod` 声明，本机自动切换到 1.26.9 构建） |
+| Go 工具链 | **1.26.9**（`go.mod` 声明，构建时自动切换工具链） |
 
 ### 插件要做什么
 
@@ -64,7 +64,7 @@ sub2api-iq/
 ├── .github/
 │   ├── release-drafter.yml
 │   └── workflows/
-│       ├── build-plugin.yml          # go1.25 + gofmt/vet/test + 交叉编译 + s2plugin pack/verify + hostemu 冒烟
+│       ├── build-plugin.yml          # go1.26.9 + gofmt/vet/test + 交叉编译 + s2plugin pack/verify + hostemu 冒烟
 │       └── code-quality.yml          # golangci-lint + govulncheck
 ├── .gitignore                        # 已修 P1-11：不再误伤文档
 ├── CHANGELOG.md                      # 0.0.1
