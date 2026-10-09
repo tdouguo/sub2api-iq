@@ -177,13 +177,23 @@ jobs:
           fi
 
       # hostemu 只能拉起与运行器同架构的二进制，因此仅对 linux-amd64 冒烟。
+      # 签名包必须向 hostemu 显式声明受信任发布者，否则会被拒绝。
       - name: Smoke test in host emulator
         if: matrix.target == 'linux-amd64'
         working-directory: ${{ env.PLUGIN_DIR }}
+        env:
+          KEY_ID: ${{ vars.PLUGIN_KEY_ID }}
         run: |
-          go tool s2plugin run \
-            -package "dist/${{ env.BASE_NAME }}-${{ needs.prepare.outputs.version }}-${{ matrix.target }}.s2plugin" \
-            info
+          set -e
+          package="dist/${{ env.BASE_NAME }}-${{ needs.prepare.outputs.version }}-${{ matrix.target }}.s2plugin"
+          trust=""
+          if [ "${{ needs.prepare.outputs.signed }}" = "true" ]; then
+            public="$(base64 -d build/keys/publisher.private | tail -c 32 | base64 -w0)"
+            trust="-trusted ${KEY_ID:-sub2api-iq-v1}=$public"
+          else
+            trust="-allow-unsigned"
+          fi
+          go tool s2plugin run -package "$package" $trust info
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -277,10 +287,19 @@ jobs:
 
       - name: Smoke test in host emulator
         working-directory: ${{ env.PLUGIN_DIR }}
+        env:
+          KEY_ID: ${{ vars.PLUGIN_KEY_ID }}
         run: |
-          go tool s2plugin run \
-            -package "dist/${{ env.BASE_NAME }}-${{ needs.prepare.outputs.version }}-universal.s2plugin" \
-            info
+          set -e
+          package="dist/${{ env.BASE_NAME }}-${{ needs.prepare.outputs.version }}-universal.s2plugin"
+          trust=""
+          if [ "${{ needs.prepare.outputs.signed }}" = "true" ]; then
+            public="$(base64 -d build/keys/publisher.private | tail -c 32 | base64 -w0)"
+            trust="-trusted ${KEY_ID:-sub2api-iq-v1}=$public"
+          else
+            trust="-allow-unsigned"
+          fi
+          go tool s2plugin run -package "$package" $trust info
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
