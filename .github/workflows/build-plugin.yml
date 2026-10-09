@@ -12,13 +12,13 @@ env:
   # 必须与 go.mod 的 go directive 一致：标准库漏洞只能靠升级工具链修复。
   GO_VERSION: '1.26.9'
   PLUGIN_DIR: plugin
-  PACKAGE: sub2api-iq.s2plugin
+  BASE_NAME: sub2api-iq
   # 发布包必须覆盖全部目标平台：宿主只接受声明了自身 <goos>-<goarch> 运行时的包。
   TARGETS: linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64
 
 jobs:
-  build:
-    name: Build and Test
+  test:
+    name: Test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -48,7 +48,89 @@ jobs:
         working-directory: ${{ env.PLUGIN_DIR }}
         run: go test -race -count=1 ./...
 
-      - name: Build runtimes
+  # 分平台包：每个产物只含该平台运行时，体积约为通用包的 1/5，
+  # 适合已知宿主平台的部署场景。
+  package:
+    name: Package ${{ matrix.target }}
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [ linux-amd64, linux-arm64, darwin-amd64, darwin-arm64, windows-amd64 ]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: ${{ env.PLUGIN_DIR }}/go.sum
+
+      - name: Build runtime
+        working-directory: ${{ env.PLUGIN_DIR }}
+        run: |
+          set -e
+          target="${{ matrix.target }}"
+          os="${target%-*}"; arch="${target#*-}"; ext=""
+          if [ "$os" = "windows" ]; then ext=".exe"; fi
+          CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
+            go build -trimpath -ldflags "-s -w" \
+            -o "dist/bin/$target/plugin$ext" ./cmd/plugin
+
+      - name: Pack
+        working-directory: ${{ env.PLUGIN_DIR }}
+        run: |
+          set -e
+          target="${{ matrix.target }}"
+          ext=""
+          case "$target" in windows-*) ext=".exe" ;; esac
+          go tool s2plugin pack \
+            -manifest manifest.source.json \
+            -ui ui \
+            -output "dist/${{ env.BASE_NAME }}-$target.s2plugin" \
+            -runtime "$target=dist/bin/$target/plugin$ext"
+
+      - name: Verify
+        working-directory: ${{ env.PLUGIN_DIR }}
+        run: |
+          go tool s2plugin verify \
+            -allow-unsigned \
+            -host-version 0.2.8 \
+            -platform "${{ matrix.target }}" \
+            "dist/${{ env.BASE_NAME }}-${{ matrix.target }}.s2plugin"
+
+      # hostemu 只能拉起与运行器同架构的二进制，因此仅对 linux-amd64 冒烟。
+      - name: Smoke test in host emulator
+        if: matrix.target == 'linux-amd64'
+        working-directory: ${{ env.PLUGIN_DIR }}
+        run: |
+          go tool s2plugin run -package "dist/${{ env.BASE_NAME }}-${{ matrix.target }}.s2plugin" info
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BASE_NAME }}-${{ matrix.target }}
+          path: ${{ env.PLUGIN_DIR }}/dist/${{ env.BASE_NAME }}-${{ matrix.target }}.s2plugin
+          if-no-files-found: error
+
+  # 通用包：一个文件含全部平台运行时，宿主在任何平台都能安装。
+  universal:
+    name: Package universal
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: ${{ env.PLUGIN_DIR }}/go.sum
+
+      - name: Build all runtimes
         working-directory: ${{ env.PLUGIN_DIR }}
         run: |
           set -e
@@ -74,10 +156,10 @@ jobs:
           go tool s2plugin pack \
             -manifest manifest.source.json \
             -ui ui \
-            -output "dist/${{ env.PACKAGE }}" \
+            -output "dist/${{ env.BASE_NAME }}.s2plugin" \
             $args
 
-      - name: Verify package for every target platform
+      - name: Verify for every target platform
         working-directory: ${{ env.PLUGIN_DIR }}
         run: |
           set -e
@@ -87,36 +169,40 @@ jobs:
               -allow-unsigned \
               -host-version 0.2.8 \
               -platform "$target" \
-              "dist/${{ env.PACKAGE }}"
+              "dist/${{ env.BASE_NAME }}.s2plugin"
           done
 
       - name: Smoke test in host emulator
         working-directory: ${{ env.PLUGIN_DIR }}
         run: |
-          go tool s2plugin run -package "dist/${{ env.PACKAGE }}" info
+          go tool s2plugin run -package "dist/${{ env.BASE_NAME }}.s2plugin" info
 
-      - name: Upload package
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.PACKAGE }}
-          path: ${{ env.PLUGIN_DIR }}/dist/${{ env.PACKAGE }}
+          name: ${{ env.BASE_NAME }}-universal
+          path: ${{ env.PLUGIN_DIR }}/dist/${{ env.BASE_NAME }}.s2plugin
           if-no-files-found: error
 
   release:
-    name: Attach Release Asset
-    needs: build
+    name: Attach Release Assets
+    needs: [ package, universal ]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Download package
+      - name: Download all packages
         uses: actions/download-artifact@v4
         with:
-          name: ${{ env.PACKAGE }}
+          path: dist
+          merge-multiple: true
+
+      - name: List packages
+        run: ls -lh dist
 
       - name: Attach to release
         uses: softprops/action-gh-release@v2
         with:
           # 不生成自动发布说明：发布内容由 release-drafter 维护，此处只负责附上包。
-          files: ${{ env.PACKAGE }}
+          files: dist/*.s2plugin

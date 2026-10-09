@@ -58,7 +58,8 @@ sub2api-iq/
 ```bash
 cd plugin
 make test          # go vet + gofmt + 单元测试（含框架一致性套件）
-make pack          # 交叉编译并用 s2plugin pack 生成 dist/sub2api-iq.s2plugin
+make pack          # 生成含全部平台的通用包 dist/sub2api-iq.s2plugin（约 26 MB）
+make pack-platform PLATFORM=linux-amd64   # 生成单平台包（约 5 MB）
 make verify        # 以宿主安装规则校验包
 make keygen        # 生成 ed25519 发布者密钥
 ```
