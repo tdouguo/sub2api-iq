@@ -1,6 +1,6 @@
 module github.com/tdouguo/sub2api-iq/plugin
 
-go 1.26.0
+go 1.26.9
 
 require github.com/feeeei/sub2api-plugin-framework v0.0.0-20260924064648-d84fcd4fe708
 

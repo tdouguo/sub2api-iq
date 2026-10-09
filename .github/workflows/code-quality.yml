@@ -17,7 +17,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.26'
+          go-version: '1.26.9'
           cache-dependency-path: plugin/go.sum
 
       - name: golangci-lint
@@ -42,7 +42,7 @@ jobs:
         with:
           # 标准库漏洞只能靠升级 Go 工具链修复
           # （例如 GO-2026-6617 要求 net/http@go1.26.9），因此与 go.mod 保持一致。
-          go-version: '1.26'
+          go-version: '1.26.9'
           cache-dependency-path: plugin/go.sum
 
       - name: govulncheck
