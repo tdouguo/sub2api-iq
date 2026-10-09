@@ -117,5 +117,5 @@ jobs:
       - name: Attach to release
         uses: softprops/action-gh-release@v2
         with:
+          # 不生成自动发布说明：发布内容由 release-drafter 维护，此处只负责附上包。
           files: ${{ env.PACKAGE }}
-          generate_release_notes: true
