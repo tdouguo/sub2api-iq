@@ -36,13 +36,6 @@ func newCaptureReader(source io.ReadCloser, limit int) *captureReader {
 	return &captureReader{source: source, limit: limit}
 }
 
-// newCaptureReaderWithDone 与 newCaptureReader 相同，但在流结束时回调 onDone。
-func newCaptureReaderWithDone(source io.ReadCloser, limit int, onDone func()) *captureReader {
-	reader := newCaptureReader(source, limit)
-	reader.onDone = onDone
-	return reader
-}
-
 func (c *captureReader) Read(p []byte) (int, error) {
 	n, err := c.source.Read(p)
 	if n > 0 {

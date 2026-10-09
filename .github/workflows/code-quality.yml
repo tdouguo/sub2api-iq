@@ -17,13 +17,16 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.26'
           cache-dependency-path: plugin/go.sum
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: latest
+          # 必须使用 v2 系列：v1.x 的 golangci-lint 用旧工具链构建，
+          # 无法加载声明了更高 go 版本的 go.mod，会直接报
+          # "Go language version used to build golangci-lint is lower than the targeted Go version"。
+          version: v2.14.0
           working-directory: plugin
           args: --timeout=5m
 
@@ -37,7 +40,9 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          # 标准库漏洞只能靠升级 Go 工具链修复
+          # （例如 GO-2026-6617 要求 net/http@go1.26.9），因此与 go.mod 保持一致。
+          go-version: '1.26'
           cache-dependency-path: plugin/go.sum
 
       - name: govulncheck
