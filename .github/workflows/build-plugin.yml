@@ -17,8 +17,51 @@ env:
   TARGETS: linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64
 
 jobs:
+  # 解析版本号并判定是否签名，供后续 job 产出「带版本号」的产物名。
+  prepare:
+    name: Prepare
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      signed: ${{ steps.meta.outputs.signed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve version and signing mode
+        id: meta
+        env:
+          # 未配置该 secret 时构建未签名包（仅能在 plugins.allow_unsigned=true 的宿主安装）
+          SIGNING_KEY: ${{ secrets.PLUGIN_SIGNING_KEY }}
+        run: |
+          set -e
+          version="$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+            "${{ env.PLUGIN_DIR }}/manifest.source.json" | head -1)"
+          if [ -z "$version" ]; then
+            echo "无法从 manifest.source.json 解析版本号" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [ -n "$SIGNING_KEY" ]; then
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+            echo "将构建【已签名】包：版本 $version"
+          else
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::未配置 PLUGIN_SIGNING_KEY，将构建未签名包；生产宿主会拒绝安装"
+          fi
+
+      - name: Upload signing key
+        if: steps.meta.outputs.signed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: signing-key
+          path: ${{ env.PLUGIN_DIR }}/build/keys/publisher.private
+          retention-days: 1
+          if-no-files-found: ignore
+
   test:
     name: Test
+    needs: prepare
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -48,11 +91,10 @@ jobs:
         working-directory: ${{ env.PLUGIN_DIR }}
         run: go test -race -count=1 ./...
 
-  # 分平台包：每个产物只含该平台运行时，体积约为通用包的 1/5，
-  # 适合已知宿主平台的部署场景。
+  # 分平台包：每个产物只含该平台运行时，体积约为通用包的五分之一。
   package:
     name: Package ${{ matrix.target }}
-    needs: test
+    needs: [ prepare, test ]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -68,6 +110,17 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: ${{ env.PLUGIN_DIR }}/go.sum
 
+      # 签名私钥来自 secret，仅在写临时文件时落盘，绝不进入仓库。
+      - name: Write signing key
+        if: needs.prepare.outputs.signed == 'true'
+        working-directory: ${{ env.PLUGIN_DIR }}
+        env:
+          SIGNING_KEY: ${{ secrets.PLUGIN_SIGNING_KEY }}
+        run: |
+          mkdir -p build/keys
+          printf '%s\n' "$SIGNING_KEY" > build/keys/publisher.private
+          chmod 600 build/keys/publisher.private
+
       - name: Build runtime
         working-directory: ${{ env.PLUGIN_DIR }}
         run: |
@@ -81,44 +134,68 @@ jobs:
 
       - name: Pack
         working-directory: ${{ env.PLUGIN_DIR }}
+        env:
+          KEY_ID: ${{ vars.PLUGIN_KEY_ID }}
         run: |
           set -e
           target="${{ matrix.target }}"
           ext=""
           case "$target" in windows-*) ext=".exe" ;; esac
+          sign=""
+          if [ "${{ needs.prepare.outputs.signed }}" = "true" ]; then
+            sign="-signing-key build/keys/publisher.private -key-id ${KEY_ID:-sub2api-iq-v1}"
+          fi
           go tool s2plugin pack \
             -manifest manifest.source.json \
             -ui ui \
-            -output "dist/${{ env.BASE_NAME }}-$target.s2plugin" \
-            -runtime "$target=dist/bin/$target/plugin$ext"
+            -output "dist/${{ env.BASE_NAME }}-${{ needs.prepare.outputs.version }}-$target.s2plugin" \
+            -runtime "$target=dist/bin/$target/plugin$ext" \
+            $sign
 
       - name: Verify
         working-directory: ${{ env.PLUGIN_DIR }}
+        env:
+          KEY_ID: ${{ vars.PLUGIN_KEY_ID }}
         run: |
-          go tool s2plugin verify \
-            -allow-unsigned \
-            -host-version 0.2.8 \
-            -platform "${{ matrix.target }}" \
-            "dist/${{ env.BASE_NAME }}-${{ matrix.target }}.s2plugin"
+          set -e
+          package="dist/${{ env.BASE_NAME }}-${{ needs.prepare.outputs.version }}-${{ matrix.target }}.s2plugin"
+          if [ "${{ needs.prepare.outputs.signed }}" = "true" ]; then
+            # 以受信任发布者身份校验：与宿主 plugins.trusted_publishers 的路径一致。
+            # 公钥由私钥推导（Ed25519 私钥 = 32 字节种子 || 32 字节公钥），无需第二个 secret。
+            public="$(base64 -d build/keys/publisher.private | tail -c 32 | base64 -w0)"
+            go tool s2plugin verify \
+              -host-version 0.2.8 \
+              -platform "${{ matrix.target }}" \
+              -trusted "${KEY_ID:-sub2api-iq-v1}=$public" \
+              "$package"
+          else
+            go tool s2plugin verify \
+              -allow-unsigned \
+              -host-version 0.2.8 \
+              -platform "${{ matrix.target }}" \
+              "$package"
+          fi
 
       # hostemu 只能拉起与运行器同架构的二进制，因此仅对 linux-amd64 冒烟。
       - name: Smoke test in host emulator
         if: matrix.target == 'linux-amd64'
         working-directory: ${{ env.PLUGIN_DIR }}
         run: |
-          go tool s2plugin run -package "dist/${{ env.BASE_NAME }}-${{ matrix.target }}.s2plugin" info
+          go tool s2plugin run \
+            -package "dist/${{ env.BASE_NAME }}-${{ needs.prepare.outputs.version }}-${{ matrix.target }}.s2plugin" \
+            info
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.BASE_NAME }}-${{ matrix.target }}
-          path: ${{ env.PLUGIN_DIR }}/dist/${{ env.BASE_NAME }}-${{ matrix.target }}.s2plugin
+          name: ${{ env.BASE_NAME }}-${{ needs.prepare.outputs.version }}-${{ matrix.target }}
+          path: ${{ env.PLUGIN_DIR }}/dist/${{ env.BASE_NAME }}-${{ needs.prepare.outputs.version }}-${{ matrix.target }}.s2plugin
           if-no-files-found: error
 
   # 通用包：一个文件含全部平台运行时，宿主在任何平台都能安装。
   universal:
     name: Package universal
-    needs: test
+    needs: [ prepare, test ]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -129,6 +206,16 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: ${{ env.PLUGIN_DIR }}/go.sum
+
+      - name: Write signing key
+        if: needs.prepare.outputs.signed == 'true'
+        working-directory: ${{ env.PLUGIN_DIR }}
+        env:
+          SIGNING_KEY: ${{ secrets.PLUGIN_SIGNING_KEY }}
+        run: |
+          mkdir -p build/keys
+          printf '%s\n' "$SIGNING_KEY" > build/keys/publisher.private
+          chmod 600 build/keys/publisher.private
 
       - name: Build all runtimes
         working-directory: ${{ env.PLUGIN_DIR }}
@@ -145,6 +232,8 @@ jobs:
 
       - name: Pack
         working-directory: ${{ env.PLUGIN_DIR }}
+        env:
+          KEY_ID: ${{ vars.PLUGIN_KEY_ID }}
         run: |
           set -e
           args=""
@@ -153,40 +242,56 @@ jobs:
             case "$target" in windows-*) ext=".exe" ;; esac
             args="$args -runtime $target=dist/bin/$target/plugin$ext"
           done
+          sign=""
+          if [ "${{ needs.prepare.outputs.signed }}" = "true" ]; then
+            sign="-signing-key build/keys/publisher.private -key-id ${KEY_ID:-sub2api-iq-v1}"
+          fi
           go tool s2plugin pack \
             -manifest manifest.source.json \
             -ui ui \
-            -output "dist/${{ env.BASE_NAME }}.s2plugin" \
-            $args
+            -output "dist/${{ env.BASE_NAME }}-${{ needs.prepare.outputs.version }}-universal.s2plugin" \
+            $args \
+            $sign
 
       - name: Verify for every target platform
         working-directory: ${{ env.PLUGIN_DIR }}
+        env:
+          KEY_ID: ${{ vars.PLUGIN_KEY_ID }}
         run: |
           set -e
+          package="dist/${{ env.BASE_NAME }}-${{ needs.prepare.outputs.version }}-universal.s2plugin"
+          if [ "${{ needs.prepare.outputs.signed }}" = "true" ]; then
+            public="$(base64 -d build/keys/publisher.private | tail -c 32 | base64 -w0)"
+            trusted="-trusted ${KEY_ID:-sub2api-iq-v1}=$public"
+          else
+            trusted="-allow-unsigned"
+          fi
           for target in ${{ env.TARGETS }}; do
             echo "verifying $target"
             go tool s2plugin verify \
-              -allow-unsigned \
               -host-version 0.2.8 \
               -platform "$target" \
-              "dist/${{ env.BASE_NAME }}.s2plugin"
+              $trusted \
+              "$package"
           done
 
       - name: Smoke test in host emulator
         working-directory: ${{ env.PLUGIN_DIR }}
         run: |
-          go tool s2plugin run -package "dist/${{ env.BASE_NAME }}.s2plugin" info
+          go tool s2plugin run \
+            -package "dist/${{ env.BASE_NAME }}-${{ needs.prepare.outputs.version }}-universal.s2plugin" \
+            info
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.BASE_NAME }}-universal
-          path: ${{ env.PLUGIN_DIR }}/dist/${{ env.BASE_NAME }}.s2plugin
+          name: ${{ env.BASE_NAME }}-${{ needs.prepare.outputs.version }}-universal
+          path: ${{ env.PLUGIN_DIR }}/dist/${{ env.BASE_NAME }}-${{ needs.prepare.outputs.version }}-universal.s2plugin
           if-no-files-found: error
 
   release:
     name: Attach Release Assets
-    needs: [ package, universal ]
+    needs: [ prepare, package, universal ]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -197,6 +302,7 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+          pattern: '!signing-key'
 
       - name: List packages
         run: ls -lh dist

@@ -43,23 +43,71 @@ CI 在每次推送时都会产出上述全部六种包（五个单平台包 + �
 
 ## 3. 签名
 
-生产环境的包必须签名，否则只能在 `plugins.allow_unsigned=true` 的宿主上安装。
+宿主在 `plugins.allow_unsigned=false`（生产默认）时会拒绝未签名包，报
+「生产配置不允许安装未签名插件」。有两种解决方式，**推荐第一种**。
+
+### 方式一：签名（推荐）
+
+签名是 Ed25519，覆盖 `manifest.json` 的精确字节，宿主用 `trusted_publishers`
+中的公钥校验。
+
+**第一步，生成密钥对：**
 
 ```bash
-make keygen                      # 生成 build/keys/publisher.private 与 .public
-make pack SIGNING_KEY=build/keys/publisher.private KEY_ID=publisher-v1
+cd plugin
+make keygen     # 生成 build/keys/publisher.private 与 build/keys/publisher.public
 ```
 
-`make keygen` 会打印可直接粘贴到宿主 `config.yaml` 的配置片段：
+命令会打印宿主配置片段，把它粘贴到宿主 `config.yaml`：
 
 ```yaml
 plugins:
   trusted_publishers:
-    publisher-v1: "<Base64 公钥>"
+    sub2api-iq-v1: "<Base64 公钥>"
 ```
 
-`KEY_ID` 必须与 `trusted_publishers` 中的键一致。**私钥绝不入库**，
-`.gitignore` 已排除 `*.private` 与 `plugin/build/keys/`。
+键名必须与打包时使用的 `KEY_ID` 一致；本仓库默认 `sub2api-iq-v1`。
+
+**第二步，签名打包：**
+
+```bash
+make pack SIGNING_KEY=build/keys/publisher.private KEY_ID=sub2api-iq-v1
+make verify SIGNING_KEY=build/keys/publisher.private KEY_ID=sub2api-iq-v1
+```
+
+`make verify` 会自动从私钥推导公钥并按「受信任发布者」路径校验，
+也就是模拟宿主安装时的检查，无需手工传公钥。
+
+**第三步（可选），让 CI 产出已签名的包：**
+
+在仓库 `Settings → Secrets and variables → Actions` 中配置：
+
+| 类型 | 名称 | 值 |
+| --- | --- | --- |
+| Secret | `PLUGIN_SIGNING_KEY` | `publisher.private` 的**全部内容**（一行 Base64） |
+| Variable | `PLUGIN_KEY_ID` | 与 `trusted_publishers` 的键名一致，如 `sub2api-iq-v1`（不配则默认该值） |
+
+配置后 CI 自动签名，产物名带版本号，例如 `sub2api-iq-0.0.1-linux-amd64.s2plugin`。
+**未配置时 CI 仍会构建，但产物是未签名的**，并在日志中给出 warning —— 这样
+fork 或未配置密钥的仓库也能跑通，不会因缺 secret 直接失败。
+
+> 只配一个 secret 就够：Ed25519 私钥由 32 字节种子加 32 字节公钥组成，
+> CI 在校验阶段用 `base64 -d | tail -c 32` 从私钥推导出公钥，
+> 无需再维护第二个 secret 或 variable 来存放公钥。
+
+**私钥绝不入库。** `.gitignore` 已排除 `*.private` 与 `plugin/build/keys/`。
+
+### 方式二：允许未签名包（仅限测试）
+
+在宿主 `config.yaml` 中设置：
+
+```yaml
+plugins:
+  allow_unsigned: true
+```
+
+这样宿主会接受未签名包，但**生产环境不建议**：任何来源的包都能安装，
+绕过了发布者身份校验。仅用于本机联调。
 
 ## 4. 安装与启用
 

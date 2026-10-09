@@ -58,34 +58,50 @@ sub2api-iq/
 ```bash
 cd plugin
 make test          # go vet + gofmt + 单元测试（含框架一致性套件）
-make pack          # 生成含全部平台的通用包 dist/sub2api-iq.s2plugin（约 26 MB）
-make pack-platform PLATFORM=linux-amd64   # 生成单平台包（约 5 MB）
+make pack          # 通用包：dist/sub2api-iq-<版本>-universal.s2plugin（约 26 MB）
+make pack-platform PLATFORM=linux-amd64   # 单平台包（约 5 MB）
 make verify        # 以宿主安装规则校验包
 make keygen        # 生成 ed25519 发布者密钥
 ```
 
-带签名发布：
+产物名带版本号，例如 `sub2api-iq-0.0.1-linux-amd64.s2plugin`。
+
+### 签名
+
+宿主在 `plugins.allow_unsigned=false`（生产默认）时会拒绝未签名包，
+报「生产配置不允许安装未签名插件」。签名分三步：
 
 ```bash
-make pack SIGNING_KEY=build/keys/publisher.private KEY_ID=publisher-v1
+make keygen                                                                 # 1. 生成密钥对
+make pack   SIGNING_KEY=build/keys/publisher.private KEY_ID=sub2api-iq-v1   # 2. 签名打包
+make verify SIGNING_KEY=build/keys/publisher.private KEY_ID=sub2api-iq-v1   # 3. 按宿主规则校验
 ```
 
-宿主侧需在 `config.yaml` 中把公钥加入 `plugins.trusted_publishers`（`make keygen` 会打印可粘贴的配置片段）。
-未签名的包只能在 `plugins.allow_unsigned=true` 的宿主上安装。
+把 `make keygen` 打印的公钥写入宿主 `config.yaml`，键名与 `KEY_ID` 一致：
+
+```yaml
+plugins:
+  trusted_publishers:
+    sub2api-iq-v1: "<Base64 公钥>"
+```
+
+CI 亦可自动签名：配置 `PLUGIN_SIGNING_KEY`（secret，私钥内容）与
+`PLUGIN_KEY_ID`（variable）。未配置时 CI 仍构建未签名包并给出 warning。
+详见 [集成文档](docs/integration.md)。
 
 本地自检（宿主由 hostemu 模拟）：
 
 ```bash
-go tool s2plugin run -package dist/sub2api-iq.s2plugin info
-go tool s2plugin run -package dist/sub2api-iq.s2plugin health
-go tool s2plugin run -package dist/sub2api-iq.s2plugin forward -url https://api.openai.com/v1/models
+go tool s2plugin run -package dist/sub2api-iq-0.0.1-universal.s2plugin info
+go tool s2plugin run -package dist/sub2api-iq-0.0.1-universal.s2plugin health
+go tool s2plugin run -package dist/sub2api-iq-0.0.1-universal.s2plugin forward -url https://api.openai.com/v1/models
 ```
 
 ## 默认配置
 
 插件安装后默认**不评测任何请求**（`enabled=false`），避免立即产生流量与费用。
 启用前需至少填写 `iq_api.base_url` 与 `iq_api.model`。完整字段见
-[配置说明](docs/CONFIGURATION.md)。
+[配置说明](docs/configuration.md)。
 
 ## 已知限制
 
