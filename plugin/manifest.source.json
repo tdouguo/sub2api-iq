@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "id": "com.sub2api.iq",
+  "name": "Sub2API IQ Evaluator",
+  "version": "0.0.1",
+  "description": "在转发 OpenAI OAuth 出站请求的同时，异步调用 IQ 评分模型对对话质量打分并留存记录",
+  "author": "tdouguo",
+  "requires": {
+    "sub2api": ">=0.2.8 <0.3.0",
+    "plugin_protocol": 1,
+    "transport_api": 1,
+    "ui_bridge": 1
+  },
+  "capabilities": [
+    {
+      "id": "openai.oauth.outbound_transport.v1",
+      "platform": "openai",
+      "account_type": "oauth"
+    }
+  ],
+  "runtimes": {},
+  "ui": { "entrypoint": "ui/index.html" },
+  "files": {}
+}

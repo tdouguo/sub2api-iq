@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sub2API IQ Evaluator</title>
+  <link rel="stylesheet" href="assets/app.css">
+</head>
+<body>
+  <main class="page">
+    <header class="header">
+      <h1>Sub2API IQ Evaluator</h1>
+      <p class="muted">
+        在转发 OpenAI OAuth 出站请求的同时，异步调用 IQ 评分模型对对话质量打分。
+        保存后由插件校验并应用，宿主加密保存。
+      </p>
+    </header>
+
+    <section class="card" id="status-card">
+      <div class="card-title">
+        <h2>运行状态</h2>
+        <button type="button" class="ghost" id="refresh-status">刷新</button>
+      </div>
+      <dl class="status" id="status-list"><dt>状态</dt><dd id="status-summary">加载中…</dd></dl>
+    </section>
+
+    <form class="card" id="config-form" autocomplete="off">
+      <div class="card-title"><h2>配置</h2><span class="badge" id="dirty-badge" hidden>未保存</span></div>
+
+      <label class="checkbox">
+        <input type="checkbox" name="enabled"> 启用评测
+        <small>总开关。关闭时插件只做纯转发，不产生任何评测流量与费用。</small>
+      </label>
+      <label class="checkbox">
+        <input type="checkbox" name="default_enabled"> 默认评测未被规则命中的账号
+        <small>默认关闭，只评测下方显式列出的账号，避免意外成本。</small>
+      </label>
+
+      <h3>评测接口</h3>
+      <label>接口地址 <small>iq_api.base_url，需兼容 OpenAI /chat/completions</small>
+        <input type="text" name="base_url" placeholder="https://iq.example.com/v1">
+      </label>
+      <label>API 密钥 <small>iq_api.api_key，留空表示不发送 Authorization 头</small>
+        <input type="password" name="api_key" placeholder="sk-…">
+      </label>
+      <div class="grid">
+        <label>评分模型 <small>iq_api.model</small><input type="text" name="model"></label>
+        <label>请求超时（秒）<input type="number" name="timeout_seconds" min="1" max="600"></label>
+        <label>失败重试次数<input type="number" name="max_retries" min="0" max="5"></label>
+      </div>
+
+      <h3>防循环检测</h3>
+      <label class="checkbox">
+        <input type="checkbox" name="check_host"> 比对请求 host 与评测接口 host
+        <small>必开。若评测接口指向同一个 Sub2API 实例，缺少该检查会导致自我调用无限递归。</small>
+      </label>
+
+      <h3>账号规则</h3>
+      <p class="muted">
+        每行一个 <code>account_id = 启用/禁用, 采样率</code>。未列出的账号按上方默认策略处理。
+        账号 ID 来自宿主账号目录。
+      </p>
+      <textarea name="accounts" rows="5" placeholder="42 = on, 1.0&#10;43 = off"></textarea>
+
+      <h3>任务队列</h3>
+      <div class="grid">
+        <label>并发评分协程<input type="number" name="worker_count" min="1" max="64"></label>
+        <label>队列容量<input type="number" name="max_size" min="1" max="10000"></label>
+      </div>
+      <label class="checkbox">
+        <input type="checkbox" name="drop_when_full"> 队列满时丢弃新任务
+        <small>推荐开启。关闭后队列满会短暂等待，可能轻微拖慢宿主转发。</small>
+      </label>
+
+      <h3>采集与留存</h3>
+      <div class="grid">
+        <label>请求体采集上限（字节）<input type="number" name="max_request_body_bytes" min="1024" max="4194304" step="1024"></label>
+        <label>响应体采集上限（字节）<input type="number" name="max_response_body_bytes" min="1024" max="4194304" step="1024"></label>
+        <label>每账号记录上限<input type="number" name="max_records_per_account" min="0" max="10000"></label>
+        <label>记录过期（小时，0 不过期）<input type="number" name="record_ttl_hours" min="0" max="2160"></label>
+      </div>
+
+      <div class="actions">
+        <button type="submit" class="primary" id="save">保存</button>
+        <button type="button" id="save-test">保存并测试</button>
+        <button type="button" class="ghost" id="reload">放弃修改</button>
+      </div>
+      <p class="message" id="message" hidden></p>
+    </form>
+  </main>
+
+  <script src="assets/bridge-v1.js"></script>
+  <script src="assets/app.js"></script>
+</body>
+</html>
