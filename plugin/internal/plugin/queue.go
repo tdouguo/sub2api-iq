@@ -31,9 +31,6 @@ type evalQueue struct {
 	stop      chan struct{}
 	wg        sync.WaitGroup
 
-	mu   sync.Mutex
-	host any // 保持对宿主服务的引用，避免配置切换后队列拿不到它
-
 	dropped atomic.Int64
 
 	// dropWhenFull 为 true 时队列满即丢弃；否则短暂等待（可能轻微拖慢宿主转发）。
