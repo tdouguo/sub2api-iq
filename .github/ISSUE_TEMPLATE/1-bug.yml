@@ -1,0 +1,112 @@
+name: 缺陷报告
+description: 报告插件在真实宿主或测试中表现出的错误行为
+title: "[缺陷] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。请尽量把可复现的环境信息填全 —— 插件运行在宿主进程内，
+        「宿主版本 + 插件版本 + 平台」三件套缺一，多数问题无法定位。
+
+        提交前请先确认：这不是配置错误（见 `docs/configuration.md`），
+        且未在 [已有 issue](https://github.com/tdouguo/sub2api-iq/issues?q=is%3Aissue) 中重复。
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 问题描述
+      description: 实际发生了什么？请描述现象本身，不要只写结论。
+      placeholder: 例如：配置页保存后界面卡住约 30 秒，随后提示保存成功。
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+      description: 你认为正确的行为应该是什么？
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      description: 请给出最小复现路径。涉及账号、采样率、队列等配置时请一并贴出。
+      placeholder: |
+        1. 插件配置为 enabled=true，iq_api.base_url 指向 ...
+        2. 在配置页修改 queue.worker_count 并保存
+        3. 观察到 ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 相关日志与错误信息
+      description: |
+        宿主日志、插件状态面板（status_json）或测试输出。
+        **请务必先脱敏**：去掉 API key、真实域名、账号 ID 等敏感信息。
+      render: text
+    validations:
+      required: false
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: 影响范围
+      description: 问题主要出现在哪一部分？
+      multiple: true
+      options:
+        - 转发 / 流式响应（RoundTrip）
+        - 旁路采集（capture）
+        - 对话还原（conversation / SSE 解析）
+        - 评分调用（scorer）
+        - 评测队列（queue）
+        - 记录存储（storage / KV）
+        - 配置校验（config）
+        - 防循环检测（loop_detection）
+        - 配置页 UI
+        - 未知 / 其他
+    validations:
+      required: true
+
+  - type: input
+    id: plugin-version
+    attributes:
+      label: 插件版本
+      description: manifest.source.json 中的 version，例如 0.0.1。
+    validations:
+      required: true
+
+  - type: input
+    id: host-version
+    attributes:
+      label: 宿主版本
+      description: Sub2API 的版本号，例如 0.2.8。
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 运行平台
+      options:
+        - linux-amd64
+        - linux-arm64
+        - darwin-amd64
+        - darwin-arm64
+        - windows-amd64
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我已确认这不是配置错误，且已查阅 docs/integration.md 的排障一节
+          required: true
+        - label: 我已在上述日志中移除密钥、真实域名与账号 ID 等敏感信息
+          required: true
