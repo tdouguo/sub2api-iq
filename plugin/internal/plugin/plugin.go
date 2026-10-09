@@ -136,7 +136,8 @@ func (p *Plugin) RoundTrip(req *http.Request, meta *sdk.RequestMeta) (*http.Resp
 	// 3. 响应体以旁路采集的方式交还宿主：宿主读多少就收集多少，绝不预先读完。
 	//    评测任务在流结束时投递，确保拿到完整内容且不拖慢首字节。
 	respCapture := newCaptureReader(resp.Body, cfg.Capture.MaxResponseBodyBytes)
-	respCapture.onDone = func() { p.submit(cfg, reqCapture, respCapture, meta) }
+	contentType := resp.Header.Get("Content-Type")
+	respCapture.onDone = func() { p.submit(cfg, reqCapture, respCapture, contentType, meta) }
 	resp.Body = respCapture
 	return resp, nil
 }
@@ -194,14 +195,14 @@ func (p *Plugin) sample() float64 {
 }
 
 // submit 把评测任务送入有界队列；队列满时按配置丢弃而非阻塞宿主转发。
-func (p *Plugin) submit(cfg *Config, req, resp *captureReader, meta *sdk.RequestMeta) {
+func (p *Plugin) submit(cfg *Config, req, resp *captureReader, contentType string, meta *sdk.RequestMeta) {
 	p.mu.RLock()
 	queue := p.queue
 	p.mu.RUnlock()
 	if queue == nil {
 		return
 	}
-	if !queue.enqueue(&evalTask{req: req, resp: resp, meta: meta, cfg: cfg}) {
+	if !queue.enqueue(&evalTask{req: req, resp: resp, meta: meta, cfg: cfg, contentType: contentType}) {
 		p.dropped.Add(1)
 	}
 }
@@ -220,7 +221,7 @@ func (p *Plugin) evaluateTask(ctx context.Context, task *evalTask) {
 		return
 	}
 
-	conv, err := parseConversation(reqRaw, respRaw, task.meta, time.Now())
+	conv, err := parseConversation(reqRaw, respRaw, task.contentType, task.meta, time.Now())
 	if err != nil {
 		return
 	}

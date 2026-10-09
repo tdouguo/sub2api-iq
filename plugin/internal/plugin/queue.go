@@ -12,10 +12,11 @@ import (
 // evalTask 是一次待评测的转发。采集器在任务被消费时才取值 ——
 // 此时宿主已读完响应流，采集器里才是完整内容。
 type evalTask struct {
-	req  *captureReader
-	resp *captureReader
-	meta *sdk.RequestMeta
-	cfg  *Config
+	req         *captureReader
+	resp        *captureReader
+	meta        *sdk.RequestMeta
+	cfg         *Config
+	contentType string // 响应的 Content-Type，用于判定是否 SSE
 }
 
 // queueCloseTimeout 是 close 等待在途 worker 退出的上限。
