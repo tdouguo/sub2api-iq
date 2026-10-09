@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 配置说明与全字段参考
+    url: https://github.com/tdouguo/sub2api-iq/blob/main/docs/configuration.md
+    about: 字段含义、取值范围与默认值在此查阅，多数「没生效」的问题源于配置。
+  - name: 安装、签名与排障
+    url: https://github.com/tdouguo/sub2api-iq/blob/main/docs/integration.md
+    about: 安装失败、签名校验不通过、宿主版本兼容性等问题的排查步骤。

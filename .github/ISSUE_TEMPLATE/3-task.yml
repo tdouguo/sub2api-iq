@@ -1,0 +1,85 @@
+name: 任务
+description: 不改变对外行为的工程任务：重构、测试补强、依赖升级、文档与 CI
+title: "[任务] "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        用于**不改变插件对外行为**的工作。如果会改变用户可见的行为，
+        请改用「功能建议」或「缺陷报告」。
+
+  - type: textarea
+    id: background
+    attributes:
+      label: 背景与动机
+      description: 为什么现在要做这件事？不做会有什么后果？
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: 工作内容
+      description: 需要完成的具体事项。请拆成可勾选的条目。
+      value: |
+        - [ ]
+        - [ ]
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: 验收标准
+      description: |
+        怎样才算做完了？请给出**可验证**的判据，例如：
+        「go vet 与 go test -count=1 ./... 全绿」「s2plugin verify 通过」
+        「某函数在给定输入下返回 X」。避免写「代码更清晰了」这类无法验证的描述。
+    validations:
+      required: true
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: 明确不做的事
+      description: 划出边界，防止任务无限膨胀。
+    validations:
+      required: false
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: 任务类型
+      options:
+        - 重构 / 可维护性
+        - 测试补强
+        - 依赖与工具链升级
+        - 文档
+        - CI / 打包
+        - 性能
+        - 其他
+    validations:
+      required: true
+
+  - type: dropdown
+    id: risk
+    attributes:
+      label: 风险等级
+      description: 评估改动触及转发热路径或存储格式的可能性。
+      options:
+        - 低：仅文档、注释、测试
+        - 中：局部逻辑，有测试覆盖
+        - 高：触及 RoundTrip / 采集 / 存储格式
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 该任务不改变插件的对外行为（否则应作为功能或缺陷提交）
+          required: true
+        - label: 若触及转发热路径，我已确认不会预读请求体或破坏流式响应
+          required: true
