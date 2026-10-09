@@ -10,7 +10,7 @@ on:
 
 env:
   # 必须与 go.mod 的 go directive 一致：标准库漏洞只能靠升级工具链修复。
-  GO_VERSION: '1.26'
+  GO_VERSION: '1.26.9'
   PLUGIN_DIR: plugin
   PACKAGE: sub2api-iq.s2plugin
   # 发布包必须覆盖全部目标平台：宿主只接受声明了自身 <goos>-<goarch> 运行时的包。
