@@ -92,7 +92,8 @@ make verify SIGNING_KEY=build/keys/publisher.private KEY_ID=sub2api-iq-v1
 fork 或未配置密钥的仓库也能跑通，不会因缺 secret 直接失败。
 
 > 只配一个 secret 就够：Ed25519 私钥由 32 字节种子加 32 字节公钥组成，
-> CI 在校验阶段用 `base64 -d | tail -c 32` 从私钥推导出公钥，
+> CI 在校验（`s2plugin verify`）与冒烟（`s2plugin run`）阶段都会用
+> `base64 -d | tail -c 32` 从私钥推导出公钥，以「受信任发布者」模式校验包，
 > 无需再维护第二个 secret 或 variable 来存放公钥。
 
 **私钥绝不入库。** `.gitignore` 已排除 `*.private` 与 `plugin/build/keys/`。
