@@ -26,7 +26,7 @@ jobs:
       signed: ${{ steps.meta.outputs.signed }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Resolve version and signing mode
         id: meta
@@ -52,7 +52,7 @@ jobs:
 
       - name: Upload signing key
         if: steps.meta.outputs.signed == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: signing-key
           path: ${{ env.PLUGIN_DIR }}/build/keys/publisher.private
@@ -65,7 +65,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -102,7 +102,7 @@ jobs:
         target: [ linux-amd64, linux-arm64, darwin-amd64, darwin-arm64, windows-amd64 ]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -196,7 +196,7 @@ jobs:
           go tool s2plugin run -package "$package" $trust info
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ env.BASE_NAME }}-${{ needs.prepare.outputs.version }}-${{ matrix.target }}
           path: ${{ env.PLUGIN_DIR }}/dist/${{ env.BASE_NAME }}-${{ needs.prepare.outputs.version }}-${{ matrix.target }}.s2plugin
@@ -209,7 +209,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -302,7 +302,7 @@ jobs:
           go tool s2plugin run -package "$package" $trust info
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: ${{ env.BASE_NAME }}-${{ needs.prepare.outputs.version }}-universal
           path: ${{ env.PLUGIN_DIR }}/dist/${{ env.BASE_NAME }}-${{ needs.prepare.outputs.version }}-universal.s2plugin
@@ -317,7 +317,7 @@ jobs:
       contents: write
     steps:
       - name: Download all packages
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v5
         with:
           path: dist
           merge-multiple: true
