@@ -84,7 +84,7 @@ func (p *Plugin) ApplyConfig(_ context.Context, raw []byte) error {
 	if oldPool != nil {
 		oldPool.Close()
 	}
-	queue.start(context.Background(), p.evaluateTask)
+	queue.start(p.evaluateTask)
 	return nil
 }
 
@@ -231,6 +231,12 @@ func (p *Plugin) evaluateTask(ctx context.Context, task *evalTask) {
 	scorer := newScorer(task.cfg, pool)
 	result, err := scorer.score(ctx, conv)
 	if err != nil {
+		// 上下文被取消说明这是关闭流程主动中断的结果（配置被替换），不是评分失败。
+		// 计成 failures 会让每次保存配置都凭空抬高失败率，掩盖真实故障。
+		if ctx.Err() != nil {
+			p.dropped.Add(1)
+			return
+		}
 		p.failures.Add(1)
 		return
 	}
