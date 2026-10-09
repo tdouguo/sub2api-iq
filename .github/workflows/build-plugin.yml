@@ -1,0 +1,121 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  GO_VERSION: '1.25'
+  PLUGIN_DIR: plugin
+  PACKAGE: sub2api-iq.s2plugin
+  # 发布包必须覆盖全部目标平台：宿主只接受声明了自身 <goos>-<goarch> 运行时的包。
+  TARGETS: linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64
+
+jobs:
+  build:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: ${{ env.PLUGIN_DIR }}/go.sum
+
+      - name: Verify formatting
+        working-directory: ${{ env.PLUGIN_DIR }}
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "以下文件未通过 gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        working-directory: ${{ env.PLUGIN_DIR }}
+        run: go vet ./...
+
+      - name: Test
+        working-directory: ${{ env.PLUGIN_DIR }}
+        run: go test -race -count=1 ./...
+
+      - name: Build runtimes
+        working-directory: ${{ env.PLUGIN_DIR }}
+        run: |
+          set -e
+          for target in ${{ env.TARGETS }}; do
+            os="${target%-*}"; arch="${target#*-}"; ext=""
+            if [ "$os" = "windows" ]; then ext=".exe"; fi
+            echo "building $target"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
+              go build -trimpath -ldflags "-s -w" \
+              -o "dist/bin/$target/plugin$ext" ./cmd/plugin
+          done
+
+      - name: Pack
+        working-directory: ${{ env.PLUGIN_DIR }}
+        run: |
+          set -e
+          args=""
+          for target in ${{ env.TARGETS }}; do
+            ext=""
+            case "$target" in windows-*) ext=".exe" ;; esac
+            args="$args -runtime $target=dist/bin/$target/plugin$ext"
+          done
+          go tool s2plugin pack \
+            -manifest manifest.source.json \
+            -ui ui \
+            -output "dist/${{ env.PACKAGE }}" \
+            $args
+
+      - name: Verify package for every target platform
+        working-directory: ${{ env.PLUGIN_DIR }}
+        run: |
+          set -e
+          for target in ${{ env.TARGETS }}; do
+            echo "verifying $target"
+            go tool s2plugin verify \
+              -allow-unsigned \
+              -host-version 0.2.8 \
+              -platform "$target" \
+              "dist/${{ env.PACKAGE }}"
+          done
+
+      - name: Smoke test in host emulator
+        working-directory: ${{ env.PLUGIN_DIR }}
+        run: |
+          go tool s2plugin run -package "dist/${{ env.PACKAGE }}" info
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PACKAGE }}
+          path: ${{ env.PLUGIN_DIR }}/dist/${{ env.PACKAGE }}
+          if-no-files-found: error
+
+  release:
+    name: Attach Release Asset
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download package
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ env.PACKAGE }}
+
+      - name: Attach to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.PACKAGE }}
+          generate_release_notes: true
