@@ -11,8 +11,10 @@ HOST_VERSION ?= 0.2.8
 SIGNING_KEY  ?=
 KEY_ID       ?=
 PACKAGE      := $(DIST)/$(NAME).s2plugin
+# 以宿主安装规则校验包时使用的平台，默认本机平台。
+PLATFORM     ?= $(HOST_TARGET)
 
-.PHONY: all test build pack verify run-info run-forward run-health keygen clean fmt lint
+.PHONY: all test build pack pack-platform verify run-info run-forward run-health keygen clean fmt lint
 
 all: test build pack verify
 
@@ -30,7 +32,7 @@ build:
 	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "-s -w" -o $(BIN)/$$t/plugin$$ext ./cmd/plugin; \
 	done
 
-# 用框架打包器生成 .s2plugin（含文件哈希校验与可选 ed25519 签名）。
+# 生成含全部平台的通用包：宿主在任何平台都能安装。
 pack: build
 	@mkdir -p $(DIST)
 	@set -e; args=""; for t in $(ALL_TARGETS); do \
@@ -40,9 +42,16 @@ pack: build
 	sign=""; if [ -n "$(SIGNING_KEY)" ]; then sign="-signing-key $(SIGNING_KEY) -key-id $(KEY_ID)"; fi; \
 	$(S2PLUGIN) pack -manifest manifest.source.json -ui ui -output $(PACKAGE) $$args $$sign
 
-# 以宿主安装规则校验包。默认按本机平台校验，可用 PLATFORM 覆盖，
-# 例如 `make verify PLATFORM=linux-amd64` 验证发布包覆盖了目标平台。
-PLATFORM     ?= $(HOST_TARGET)
+# 只打包单个平台，产物体积约为通用包的五分之一。
+# 用法：make pack-platform PLATFORM=linux-amd64
+pack-platform:
+	@set -e; t=$(PLATFORM); os=$${t%-*}; arch=$${t#*-}; ext=""; \
+	  if [ "$$os" = "windows" ]; then ext=".exe"; fi; \
+	  CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags "-s -w" -o $(BIN)/$$t/plugin$$ext ./cmd/plugin; \
+	  echo "packing $$t"; \
+	  $(S2PLUGIN) pack -manifest manifest.source.json -ui ui \
+	    -output $(DIST)/$(NAME)-$$t.s2plugin \
+	    -runtime $$t=$(BIN)/$$t/plugin$$ext
 
 # 以宿主安装规则校验包（未签名时需宿主 allow_unsigned=true）。
 verify:

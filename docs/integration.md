@@ -23,8 +23,23 @@ make pack
 - 为每个运行时与 UI 文件计算 SHA-256 写入 `files`；
 - 生成规范的 `manifest.json`（未签名包不含 `signature.json`）。
 
-默认目标平台为 `linux-amd64 linux-arm64 darwin-arm64 windows-amd64`，另外总是包含
-本机平台（宿主只接受声明了自身 `<goos>-<goarch>` 运行时的包）。
+默认目标平台为 `linux-amd64`、`linux-arm64`、`darwin-amd64`、`darwin-arm64`、
+`windows-amd64`，另外总是包含本机平台（宿主只接受声明了自身 `<goos>-<goarch>`
+运行时的包）。
+
+### 两种产物形态
+
+| 目标 | 产物 | 体积 | 适用场景 |
+| --- | --- | --- | --- |
+| `make pack` | `dist/sub2api-iq.s2plugin` | 约 26 MB | 通用包，含全部平台运行时，宿主在任何平台都能安装 |
+| `make pack-platform PLATFORM=<目标>` | `dist/sub2api-iq-<目标>.s2plugin` | 约 5 MB | 单平台包，只含该平台运行时，部署前已知宿主平台时更小 |
+
+```bash
+make pack-platform PLATFORM=linux-amd64
+```
+
+CI 在每次推送时都会产出上述全部六种包（五个单平台包 + 一个通用包），
+打 `v*` 标签发版时自动附到 release 上。单平台产物只能安装在对应平台的宿主上。
 
 ## 3. 签名
 
