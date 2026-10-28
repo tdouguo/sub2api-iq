@@ -124,6 +124,70 @@
 超过采集上限的报文会被截断并**跳过评测**（避免把残缺对话送去打分），
 但正常转发不受影响。`record_ttl_hours` 上限 2160 小时（90 天）来自宿主 KV 的 TTL 限制。
 
+## `test_groups` —— 测试分组
+
+测试分组功能允许通过配置页的「测试」按钮主动运行预定义的测试用例集，验证模型在不同场景下的表现。
+
+| 字段 | 类型 | 默认 | 说明 |
+| --- | --- | --- | --- |
+| `enabled` | bool | `false` | 是否启用测试分组功能 |
+| `groups` | object | `{}` | 测试分组映射，键为分组 ID |
+
+### 测试分组结构
+
+每个测试分组包含多个测试提示词：
+
+```json
+{
+  "test_groups": {
+    "enabled": true,
+    "groups": {
+      "reasoning-basic": {
+        "name": "基础推理",
+        "description": "测试基本逻辑推理能力",
+        "prompts": [
+          {
+            "id": "reasoning-1",
+            "title": "简单三段论",
+            "content": "所有哺乳动物都是温血动物。所有狗都是哺乳动物。请问：所有狗都是温血动物吗？",
+            "expected_answer": "{\"answer\":true,\"reasoning\":\"根据三段论推理\"}",
+            "min_score": 70
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+### 测试提示词字段
+
+| 字段 | 类型 | 必填 | 说明 |
+| --- | --- | --- | --- |
+| `id` | string | ✅ | 提示词唯一标识 |
+| `title` | string | — | 提示词标题（用于展示） |
+| `content` | string | ✅ | 实际发给模型的提示词 |
+| `expected_answer` | string | — | 期望答案（JSON 格式）；留空表示不验证答案 |
+| `min_score` | float | — | 期望最低分数（0–100），用于回归检测 |
+
+### 测试执行流程
+
+1. 点击配置页的「测试」按钮触发 `TestConfig` RPC
+2. 先验证评测接口连通性（与普通测试相同）
+3. 如果 `test_groups.enabled=true`，依次执行所有分组：
+   - 用 `iq_api` 配置调用模型获取答案
+   - 比对答案与 `expected_answer`（JSON 结构化比对）
+   - 调用评分器对答案打分
+   - 将测试结果存储到宿主 KV（键前缀 `testgroup.<group_id>`）
+4. 返回测试结果汇总（通过数/失败数/平均分）
+
+### 注意事项
+
+- 测试运行时会实际调用 `iq_api` 指向的模型，**产生真实 API 费用**
+- 每个提示词都会被评分，温度固定为 0 以保证可复现
+- 测试结果保存 7 天 TTL
+- 如果评测接口不可用，测试会失败但不影响配置保存
+
 ## 校验失败示例
 
 校验失败时宿主会把错误消息展示给管理员。常见情形：
@@ -134,4 +198,6 @@
 | `{"iq_api": {"base_url": "ftp://x"}}` | iq_api.base_url 必须是 http(s) 绝对地址 |
 | `{"accounts": {"1": {"sample_ratio": 1.5}}}` | accounts[1].sample_ratio 必须在 0 到 1 之间 |
 | `{"capture": {"record_ttl_hours": 99999}}` | capture.record_ttl_hours 必须在 0 到 2160 之间 |
+| `{"test_groups": {"groups": {"": {...}}}}` | test_groups.groups 包含空的分组 ID |
+| `{"test_groups": {"groups": {"g1": {"prompts": [{"id": "", ...}]}}}}` | test_groups.groups[g1].prompts[0].id 不能为空 |
 | `{"__unknown__": 1}` | 配置解析失败：unknown field |

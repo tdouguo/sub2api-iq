@@ -25,6 +25,7 @@ type Config struct {
 	LoopDetection LoopDetectionConfig `json:"loop_detection"`
 	Queue         QueueConfig         `json:"queue"`
 	Capture       CaptureConfig       `json:"capture"`
+	TestGroups    TestGroupsConfig    `json:"test_groups"`
 }
 
 // IQAPIConfig 描述 IQ 评测接口。接口须兼容 OpenAI /chat/completions。
@@ -72,6 +73,30 @@ type CaptureConfig struct {
 	RecordTTLHours int `json:"record_ttl_hours"`
 }
 
+// TestGroupsConfig 控制主动测试分组功能。
+type TestGroupsConfig struct {
+	// Enabled 为 true 时允许通过 TestConfig RPC 触发测试运行。
+	Enabled bool `json:"enabled"`
+	// Groups 是分组 ID 到测试组的映射。
+	Groups map[string]TestGroup `json:"groups"`
+}
+
+// TestGroup 代表一组测试用例。
+type TestGroup struct {
+	Name        string       `json:"name"`
+	Description string       `json:"description"`
+	Prompts     []TestPrompt `json:"prompts"`
+}
+
+// TestPrompt 是单个测试提示词及其期望答案。
+type TestPrompt struct {
+	ID             string  `json:"id"`
+	Title          string  `json:"title"`
+	Content        string  `json:"content"`
+	ExpectedAnswer string  `json:"expected_answer"` // JSON 格式，如 {"number":21}
+	MinScore       float64 `json:"min_score,omitempty"`
+}
+
 // DefaultConfig 返回完整默认配置；每次调用都返回独立副本，避免 Codec 复用共享状态。
 func DefaultConfig() Config {
 	return Config{
@@ -100,6 +125,10 @@ func DefaultConfig() Config {
 			MaxResponseBodyBytes: 256 * 1024,
 			MaxRecordsPerAccount: 200,
 			RecordTTLHours:       0,
+		},
+		TestGroups: TestGroupsConfig{
+			Enabled: false,
+			Groups:  map[string]TestGroup{},
 		},
 	}
 }
@@ -171,6 +200,31 @@ func validate(c *Config) error {
 	if c.Capture.RecordTTLHours < 0 || c.Capture.RecordTTLHours > 90*24 {
 		return errors.New("capture.record_ttl_hours 必须在 0 到 2160 之间")
 	}
+
+	// 验证测试分组配置
+	if c.TestGroups.Groups == nil {
+		c.TestGroups.Groups = map[string]TestGroup{}
+	}
+	for groupID, group := range c.TestGroups.Groups {
+		if strings.TrimSpace(groupID) == "" {
+			return errors.New("test_groups.groups 包含空的分组 ID")
+		}
+		if strings.TrimSpace(group.Name) == "" {
+			return fmt.Errorf("test_groups.groups[%s].name 不能为空", groupID)
+		}
+		for i, prompt := range group.Prompts {
+			if strings.TrimSpace(prompt.ID) == "" {
+				return fmt.Errorf("test_groups.groups[%s].prompts[%d].id 不能为空", groupID, i)
+			}
+			if strings.TrimSpace(prompt.Content) == "" {
+				return fmt.Errorf("test_groups.groups[%s].prompts[%d].content 不能为空", groupID, i)
+			}
+			if prompt.MinScore < 0 || prompt.MinScore > 100 {
+				return fmt.Errorf("test_groups.groups[%s].prompts[%d].min_score 必须在 0 到 100 之间", groupID, i)
+			}
+		}
+	}
+
 	return nil
 }
 

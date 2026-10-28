@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"fmt"
 	"math/rand"
 	"net/http"
 	"strconv"
@@ -249,15 +250,17 @@ func (p *Plugin) evaluateTask(ctx context.Context, task *evalTask) {
 }
 
 // TestConfig 向评测接口发一次最小请求，验证地址、密钥与模型是否可用。
+// 如果启用了测试分组，还会运行所有测试分组并返回结果。
 func (p *Plugin) TestConfig(ctx context.Context, raw []byte) (*sdk.TestResult, error) {
 	cfg, err := Codec.Decode(raw)
 	if err != nil {
 		return nil, err
 	}
 	status, _ := json.Marshal(map[string]any{
-		"base_url": cfg.IQAPI.BaseURL,
-		"model":    cfg.IQAPI.Model,
-		"endpoint": strings.TrimSuffix(cfg.IQAPI.BaseURL, "/") + "/chat/completions",
+		"base_url":    cfg.IQAPI.BaseURL,
+		"model":       cfg.IQAPI.Model,
+		"endpoint":    strings.TrimSuffix(cfg.IQAPI.BaseURL, "/") + "/chat/completions",
+		"test_groups": cfg.TestGroups.Enabled,
 	})
 	if cfg.IQAPI.BaseURL == "" {
 		return &sdk.TestResult{Success: false, Message: "iq_api.base_url 为空，无法测试", StatusJSON: status}, nil
@@ -265,6 +268,8 @@ func (p *Plugin) TestConfig(ctx context.Context, raw []byte) (*sdk.TestResult, e
 
 	pool := newPool()
 	defer pool.Close()
+
+	// 1. 先验证评测接口连通性
 	started := time.Now()
 	_, err = newScorer(&cfg, pool).probe(ctx)
 	latency := time.Since(started)
@@ -276,9 +281,46 @@ func (p *Plugin) TestConfig(ctx context.Context, raw []byte) (*sdk.TestResult, e
 			StatusJSON: status,
 		}, nil
 	}
+
+	msg := "评测接口连通：" + cfg.IQAPI.Model + "（" + latency.Round(time.Millisecond).String() + "）"
+
+	// 2. 如果启用了测试分组，运行测试
+	if cfg.TestGroups.Enabled && len(cfg.TestGroups.Groups) > 0 {
+		_, _, host := p.current()
+		var kv *hostsvc.KV
+		if host != nil {
+			kv = host.KV()
+		}
+
+		runner := newTestRunner(&cfg, newScorer(&cfg, pool), kv)
+		results, err := runner.RunAllGroups(ctx)
+		if err != nil {
+			msg += "\n测试分组运行失败: " + err.Error()
+		} else {
+			// 汇总测试结果
+			totalPassed, totalFailed := 0, 0
+			for _, r := range results {
+				totalPassed += r.Passed
+				totalFailed += r.Failed
+			}
+			msg += fmt.Sprintf("\n测试分组: %d 个分组, %d 通过, %d 失败",
+				len(results), totalPassed, totalFailed)
+
+			// 将结果附加到 status
+			statusData := map[string]any{
+				"base_url":     cfg.IQAPI.BaseURL,
+				"model":        cfg.IQAPI.Model,
+				"endpoint":     strings.TrimSuffix(cfg.IQAPI.BaseURL, "/") + "/chat/completions",
+				"test_groups":  cfg.TestGroups.Enabled,
+				"test_results": results,
+			}
+			status, _ = json.Marshal(statusData)
+		}
+	}
+
 	return &sdk.TestResult{
 		Success:    true,
-		Message:    "评测接口连通：" + cfg.IQAPI.Model + "（" + latency.Round(time.Millisecond).String() + "）",
+		Message:    msg,
 		Latency:    latency,
 		StatusJSON: status,
 	}, nil
