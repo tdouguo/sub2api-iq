@@ -1,0 +1,40 @@
+name: UI Tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'plugin/ui/**'
+      - 'tests/ui.test.cjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/ui-tests.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'plugin/ui/**'
+      - 'tests/ui.test.cjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/ui-tests.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ui-tests-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:ui

@@ -3,92 +3,148 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sub2API IQ Evaluator</title>
+  <meta name="color-scheme" content="light dark">
+  <title>IQ 评测 · Sub2API</title>
   <link rel="stylesheet" href="assets/app.css">
 </head>
 <body>
+  <a class="skip-link" href="#config-heading">跳转到评测配置</a>
   <main class="page">
     <header class="header">
-      <h1>Sub2API IQ Evaluator</h1>
-      <p class="muted">
-        在转发 OpenAI OAuth 出站请求的同时，异步调用 IQ 评分模型对对话质量打分。
-        保存后由插件校验并应用，宿主加密保存。
-      </p>
+      <div class="brand-mark" aria-hidden="true">IQ</div>
+      <div class="header-copy">
+        <p class="eyebrow">SUB2API / EVALUATOR</p>
+        <h1>IQ 评测控制台</h1>
+        <p class="muted">异步评估 OpenAI OAuth 对话的推理质量，按账号控制评测范围。</p>
+      </div>
+      <span class="badge neutral" id="health-badge" role="status">连接宿主中</span>
     </header>
 
-    <section class="card" id="status-card">
-      <div class="card-title">
-        <h2>运行状态</h2>
-        <button type="button" class="ghost" id="refresh-status">刷新</button>
+    <section class="card overview" aria-labelledby="status-heading">
+      <div class="section-heading">
+        <div><h2 id="status-heading">运行概览</h2><p class="muted" id="status-note">正在读取插件运行状态…</p></div>
+        <button type="button" class="ghost" id="refresh-status">刷新状态</button>
       </div>
-      <dl class="status" id="status-list"><dt>状态</dt><dd id="status-summary">加载中…</dd></dl>
+      <dl class="metrics" aria-label="插件运行指标">
+        <div class="metric"><dt>转发请求</dt><dd id="metric-requests">—</dd><dd class="metric-caption">本次运行累计</dd></div>
+        <div class="metric"><dt>完成评测</dt><dd id="metric-evaluated">—</dd><dd class="metric-caption">已获得评分</dd></div>
+        <div class="metric"><dt>排队任务</dt><dd id="metric-queued">—</dd><dd class="metric-caption">等待异步评分</dd></div>
+        <div class="metric"><dt>评测失败</dt><dd id="metric-failures">—</dd><dd class="metric-caption">本次运行累计</dd></div>
+      </dl>
+      <details class="status-details">
+        <summary>运行详情 <span class="muted" id="status-updated">尚未更新</span></summary>
+        <dl class="status" id="status-list"><dt>状态</dt><dd>等待宿主响应</dd></dl>
+      </details>
     </section>
 
-    <form class="card" id="config-form" autocomplete="off">
-      <div class="card-title"><h2>配置</h2><span class="badge" id="dirty-badge" hidden>未保存</span></div>
-
-      <label class="checkbox">
-        <input type="checkbox" name="enabled"> 启用评测
-        <small>总开关。关闭时插件只做纯转发，不产生任何评测流量与费用。</small>
-      </label>
-      <label class="checkbox">
-        <input type="checkbox" name="default_enabled"> 默认评测未被规则命中的账号
-        <small>默认关闭，只评测下方显式列出的账号，避免意外成本。</small>
-      </label>
-
-      <h3>评测接口</h3>
-      <label>接口地址 <small>iq_api.base_url，需兼容 OpenAI /chat/completions</small>
-        <input type="text" name="base_url" placeholder="https://iq.example.com/v1">
-      </label>
-      <label>API 密钥 <small>iq_api.api_key，留空表示不发送 Authorization 头</small>
-        <input type="password" name="api_key" placeholder="sk-…">
-      </label>
-      <div class="grid">
-        <label>评分模型 <small>iq_api.model</small><input type="text" name="model"></label>
-        <label>请求超时（秒）<input type="number" name="timeout_seconds" min="1" max="600"></label>
-        <label>失败重试次数<input type="number" name="max_retries" min="0" max="5"></label>
+    <form id="config-form" autocomplete="off" novalidate aria-labelledby="config-heading">
+      <div class="section-heading config-heading">
+        <div><p class="eyebrow">CONFIGURATION</p><h2 id="config-heading" tabindex="-1">评测配置</h2></div>
+        <span class="badge warning" id="dirty-badge" hidden>有未保存的修改</span>
+      </div>
+      <div class="message info" id="connection-message" role="status">
+        <span id="connection-text">正在加载已保存的配置…</span>
+        <button type="button" id="retry-load" hidden>重试加载</button>
+      </div>
+      <div class="error-summary" id="error-summary" tabindex="-1" role="alert" aria-labelledby="error-heading" hidden>
+        <h3 id="error-heading">请检查以下配置</h3>
+        <ul id="error-list"></ul>
       </div>
 
-      <h3>防循环检测</h3>
-      <label class="checkbox">
-        <input type="checkbox" name="check_host"> 比对请求 host 与评测接口 host
-        <small>必开。若评测接口指向同一个 Sub2API 实例，缺少该检查会导致自我调用无限递归。</small>
-      </label>
+      <fieldset id="config-fields" disabled>
+        <legend class="sr-only">评测配置字段</legend>
+        <section class="card" aria-labelledby="scope-heading">
+          <div class="section-heading"><div><p class="eyebrow">01 / SCOPE</p><h3 id="scope-heading">评测范围</h3></div><span class="badge neutral" id="scope-badge">尚未加载</span></div>
+          <label class="switch-row" for="enabled">
+            <span><span class="control-title">启用 IQ 评测</span><small id="enabled-help">关闭时只转发请求，不产生评测流量与费用。</small></span>
+            <input class="switch" type="checkbox" role="switch" id="enabled" name="enabled" aria-describedby="enabled-help">
+          </label>
+          <label class="switch-row" for="default_enabled">
+            <span><span class="control-title">评测未列入规则的账号</span><small id="default-help">关闭后，仅评测账号规则中明确启用的账号。</small></span>
+            <input class="switch" type="checkbox" role="switch" id="default_enabled" name="default_enabled" aria-describedby="default-help">
+          </label>
+          <p class="callout" id="scope-summary">加载后显示当前草稿的评测范围。</p>
+          <div class="field rule-field">
+            <label for="accounts">账号规则 <span class="optional">可选</span></label>
+            <p class="field-help" id="accounts-help">每行一条规则；账号 ID 可在宿主账号目录中查看。采样率 0–1，0.2 表示抽样 20%。</p>
+            <textarea id="accounts" name="accounts" rows="4" spellcheck="false" aria-describedby="accounts-help accounts-error" placeholder="42 = on, 1.0&#10;43 = off&#10;44 = on, 0.2"></textarea>
+            <p class="field-error" id="accounts-error" hidden></p>
+            <p class="field-help">支持 <code>#</code> 注释。留空时，所有账号均按上方默认策略处理。</p>
+          </div>
+        </section>
 
-      <h3>账号规则</h3>
-      <p class="muted">
-        每行一个 <code>account_id = 启用/禁用, 采样率</code>。未列出的账号按上方默认策略处理。
-        账号 ID 来自宿主账号目录。
-      </p>
-      <textarea name="accounts" rows="5" placeholder="42 = on, 1.0&#10;43 = off"></textarea>
+        <section class="card" aria-labelledby="api-heading">
+          <div class="section-heading"><div><p class="eyebrow">02 / CONNECTION</p><h3 id="api-heading">评分接口</h3></div><span class="section-hint">启用前完成配置</span></div>
+          <div class="field">
+            <label for="base_url">接口根地址 <span class="optional">启用时必填</span></label>
+            <input type="text" inputmode="url" id="base_url" name="base_url" spellcheck="false" placeholder="https://iq.example.com/v1" aria-describedby="base_url-help base_url-error">
+            <p class="field-help" id="base_url-help">使用兼容 OpenAI 的接口，插件会自动追加 <code>/chat/completions</code>。</p>
+            <p class="field-error" id="base_url-error" hidden></p>
+          </div>
+          <div class="grid">
+            <div class="field">
+              <label for="api_key">API 密钥 <span class="optional">可选</span></label>
+              <input type="password" id="api_key" name="api_key" autocomplete="off" spellcheck="false" placeholder="输入评分接口密钥" aria-describedby="api_key-help">
+              <p class="field-help" id="api_key-help">由宿主加密保存。留空时不发送 Authorization 头。</p>
+            </div>
+            <div class="field">
+              <label for="model">评分模型 <span class="optional">启用时必填</span></label>
+              <input type="text" id="model" name="model" spellcheck="false" placeholder="例如 swift-1.5-iq3_xxs" aria-describedby="model-help model-error">
+              <p class="field-help" id="model-help">填写评分接口支持的模型名称。</p>
+              <p class="field-error" id="model-error" hidden></p>
+            </div>
+          </div>
+          <label class="check-row" for="check_host">
+            <input type="checkbox" id="check_host" name="check_host" aria-describedby="host-help">
+            <span><span class="control-title">启用同站点防循环检测</span><small id="host-help">跳过与评分接口同 host 的请求，避免评测接口自我调用。建议始终开启。</small></span>
+          </label>
+          <p class="callout warning" id="host-warning" hidden>防循环检测已关闭。评分接口指向同一宿主时，可能持续自我调用并耗尽资源。</p>
+        </section>
 
-      <h3>任务队列</h3>
-      <div class="grid">
-        <label>并发评分协程<input type="number" name="worker_count" min="1" max="64"></label>
-        <label>队列容量<input type="number" name="max_size" min="1" max="10000"></label>
+        <details class="card advanced" id="advanced-settings">
+          <summary><span><span class="eyebrow">03 / ADVANCED</span><span class="summary-title">高级设置</span><span class="field-help">超时重试、任务队列与数据留存</span></span><span class="details-indicator" aria-hidden="true"></span></summary>
+          <div class="advanced-content">
+            <h3>请求与重试</h3>
+            <div class="grid">
+              <div class="field"><label for="timeout_seconds">请求超时 <span class="unit">秒</span></label><input type="number" id="timeout_seconds" name="timeout_seconds" min="1" max="600" step="1" required aria-describedby="timeout_seconds-help timeout_seconds-error"><p class="field-help" id="timeout_seconds-help">1–600 秒</p><p class="field-error" id="timeout_seconds-error" hidden></p></div>
+              <div class="field"><label for="max_retries">失败重试 <span class="unit">次</span></label><input type="number" id="max_retries" name="max_retries" min="0" max="5" step="1" required aria-describedby="max_retries-help max_retries-error"><p class="field-help" id="max_retries-help">0–5 次，仅重试网络错误、429 和 5xx。</p><p class="field-error" id="max_retries-error" hidden></p></div>
+            </div>
+            <h3>任务队列</h3>
+            <div class="grid">
+              <div class="field"><label for="worker_count">并发评分数</label><input type="number" id="worker_count" name="worker_count" min="1" max="64" step="1" required aria-describedby="worker_count-help worker_count-error"><p class="field-help" id="worker_count-help">1–64，按接口限流能力调整。</p><p class="field-error" id="worker_count-error" hidden></p></div>
+              <div class="field"><label for="max_size">队列容量 <span class="unit">条</span></label><input type="number" id="max_size" name="max_size" min="1" max="10000" step="1" required aria-describedby="max_size-help max_size-error"><p class="field-help" id="max_size-help">1–10,000 条待评测任务</p><p class="field-error" id="max_size-error" hidden></p></div>
+            </div>
+            <label class="check-row" for="drop_when_full"><input type="checkbox" id="drop_when_full" name="drop_when_full" aria-describedby="queue-help"><span><span class="control-title">队列满时丢弃新任务</span><small id="queue-help">建议开启。关闭后会等待至多 200ms，可能影响转发延迟。</small></span></label>
+            <h3>采集与留存</h3>
+            <div class="grid">
+              <div class="field"><label for="max_request_body_bytes">请求体采集上限 <span class="unit">字节</span></label><input type="number" id="max_request_body_bytes" name="max_request_body_bytes" min="1024" max="4194304" step="1" required aria-describedby="max_request_body_bytes-help max_request_body_bytes-error"><p class="field-help" id="max_request_body_bytes-help">1 KiB–4 MiB</p><p class="field-error" id="max_request_body_bytes-error" hidden></p></div>
+              <div class="field"><label for="max_response_body_bytes">响应体采集上限 <span class="unit">字节</span></label><input type="number" id="max_response_body_bytes" name="max_response_body_bytes" min="1024" max="4194304" step="1" required aria-describedby="max_response_body_bytes-help max_response_body_bytes-error"><p class="field-help" id="max_response_body_bytes-help">1 KiB–4 MiB</p><p class="field-error" id="max_response_body_bytes-error" hidden></p></div>
+              <div class="field"><label for="max_records_per_account">每账号记录上限 <span class="unit">条</span></label><input type="number" id="max_records_per_account" name="max_records_per_account" min="0" max="10000" step="1" required aria-describedby="max_records_per_account-help max_records_per_account-error"><p class="field-help" id="max_records_per_account-help">0–10,000，0 表示不限条数。</p><p class="field-error" id="max_records_per_account-error" hidden></p></div>
+              <div class="field"><label for="record_ttl_hours">记录过期时间 <span class="unit">小时</span></label><input type="number" id="record_ttl_hours" name="record_ttl_hours" min="0" max="2160" step="1" required aria-describedby="record_ttl_hours-help record_ttl_hours-error"><p class="field-help" id="record_ttl_hours-help">0–2,160（90 天），0 表示不过期。</p><p class="field-error" id="record_ttl_hours-error" hidden></p></div>
+            </div>
+            <p class="callout">超过采集上限的对话会跳过评测，正常转发不受影响。</p>
+          </div>
+        </details>
+      </fieldset>
+
+      <div class="message" id="message" role="status" aria-live="polite" aria-atomic="true" tabindex="-1" hidden></div>
+      <button type="button" id="reconcile-config" hidden>重新核对保存结果</button>
+      <div class="discard-confirm card" id="discard-confirm" role="group" aria-labelledby="discard-heading" hidden>
+        <div><h3 id="discard-heading">放弃当前修改？</h3><p class="muted">表单将恢复到最近读取或保存的配置。</p></div>
+        <div class="button-group"><button type="button" id="cancel-discard">继续编辑</button><button type="button" class="danger" id="confirm-discard">确认放弃</button></div>
       </div>
-      <label class="checkbox">
-        <input type="checkbox" name="drop_when_full"> 队列满时丢弃新任务
-        <small>推荐开启。关闭后队列满会短暂等待，可能轻微拖慢宿主转发。</small>
-      </label>
-
-      <h3>采集与留存</h3>
-      <div class="grid">
-        <label>请求体采集上限（字节）<input type="number" name="max_request_body_bytes" min="1024" max="4194304" step="1024"></label>
-        <label>响应体采集上限（字节）<input type="number" name="max_response_body_bytes" min="1024" max="4194304" step="1024"></label>
-        <label>每账号记录上限<input type="number" name="max_records_per_account" min="0" max="10000"></label>
-        <label>记录过期（小时，0 不过期）<input type="number" name="record_ttl_hours" min="0" max="2160"></label>
-      </div>
-
-      <div class="actions">
-        <button type="submit" class="primary" id="save">保存</button>
-        <button type="button" id="save-test">保存并测试</button>
-        <button type="button" class="ghost" id="reload">放弃修改</button>
-      </div>
-      <p class="message" id="message" hidden></p>
+      <footer class="action-bar">
+        <div class="save-state"><strong id="save-state">正在加载配置</strong><span>保存后生效 · 宿主加密保存</span></div>
+        <div class="button-group">
+          <button type="button" class="ghost" id="reload" disabled>放弃修改</button>
+          <button type="button" id="save-test" aria-describedby="test-help" disabled>保存并测试</button>
+          <button type="button" class="primary" id="save" disabled>保存配置</button>
+        </div>
+      </footer>
+      <p class="footer-note" id="test-help">保存与测试可能需要宿主二次验证；测试会向评分接口发送一次最小请求。</p>
     </form>
+    <noscript><p class="message error">此配置页需要启用 JavaScript，并从 Sub2API 插件管理页面打开。</p></noscript>
   </main>
-
   <script src="assets/bridge-v1.js"></script>
   <script src="assets/app.js"></script>
 </body>
